@@ -33,6 +33,7 @@ All options are available in the **Lovelace editor**, but you can also configure
 | `badge_icon`             | string        | Optional | Icon displayed as a badge. Supports [templating](https://www.home-assistant.io/docs/configuration/templating/).                                                                                                 |
 | `badge_text`             | string        | Optional | Text displayed inside the badge. Supports [templating](https://www.home-assistant.io/docs/configuration/templating/).                                                                                             |
 | `badge_color`            | string        | Optional | Color applied to the badge. Supports [templating](https://www.home-assistant.io/docs/configuration/templating/).                                                                                                  |
+| `badges`                 | list          | Optional | List of badges displayed on the corners of the icon. See [Badges](#badges).                                                                        |
 | `multiline_secondary`    | boolean       | `false`  | If `true`, secondary text can span multiple lines.                                                                                                 |
 | `vertical`               | boolean       | `false` | If `true`, displays the icon above the text (vertical layout).                                                                                     |
 | `tap_action`             | action        | `none`   | Action performed when the card is tapped.                                                                                                          |
@@ -44,6 +45,38 @@ All options are available in the **Lovelace editor**, but you can also configure
 | `features`               | list          | `none`   | Card features to display (e.g., controls or extra info).                                                                                           |
 | `features_position`      | string        | `bottom` | Where features are displayed: `bottom` (below the card) or `inline` (next to content). Note: when using `inline`, only the first feature is shown. |
 | `entity_id`              | string / list | Optional | Restricts template updates to these entities. Useful if automatic detection misses dependencies.                                                            |
+
+### Badges
+
+Each item of the `badges` list supports the following options:
+
+| Name       | Type   | Default     | Description                                                                                                                          |
+| :--------- | :----- | :---------- | :----------------------------------------------------------------------------------------------------------------------------------- |
+| `position` | string | `top-right` | Corner of the icon where the badge is displayed: `top-left`, `top-right`, `bottom-left` or `bottom-right`.                           |
+| `icon`     | string | Optional    | Icon displayed in the badge. Supports [templating](https://www.home-assistant.io/docs/configuration/templating/).                     |
+| `text`     | string | Optional    | Text displayed in the badge, replaces the icon. Supports [templating](https://www.home-assistant.io/docs/configuration/templating/). |
+| `color`    | string | Optional    | Color of the badge. Supports [templating](https://www.home-assistant.io/docs/configuration/templating/).                              |
+
+* A badge is hidden when both its `icon` and `text` are empty, so a template can display it only when needed.
+* Only one badge is displayed per corner. If several visible badges share the same position, the last one in the list is displayed.
+* `badge_icon`, `badge_text` and `badge_color` are still supported. They display a badge at the `top-right` position, before the `badges` list.
+* With a right-to-left language, left and right positions are mirrored.
+
+```yaml
+type: custom:mushroom-template-card
+primary: Living room
+icon: mdi:sofa
+badges:
+  - position: top-right
+    icon: "{{ 'mdi:window-open-variant' if is_state('binary_sensor.living_room_window', 'on') }}"
+    color: blue
+  - position: bottom-right
+    icon: "{{ 'mdi:motion-sensor' if is_state('binary_sensor.living_room_motion', 'on') }}"
+    color: amber
+  - position: top-left
+    text: "{{ states('sensor.living_room_temperature') | round(0) }}"
+    color: "{{ 'red' if states('sensor.living_room_temperature') | float(0) > 25 else 'green' }}"
+```
 
 ---
 

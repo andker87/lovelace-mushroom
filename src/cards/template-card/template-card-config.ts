@@ -14,6 +14,33 @@ import { LovelaceCardFeatureConfig } from "../../ha/panels/lovelace/card-feature
 import { lovelaceCardConfigStruct } from "../../shared/config/lovelace-card-config";
 import { layoutStruct } from "../../utils/layout";
 
+export const TEMPLATE_CARD_BADGE_POSITIONS = [
+  "top-left",
+  "top-right",
+  "bottom-left",
+  "bottom-right",
+] as const;
+
+export type TemplateCardBadgePosition =
+  (typeof TEMPLATE_CARD_BADGE_POSITIONS)[number];
+
+export const DEFAULT_TEMPLATE_CARD_BADGE_POSITION: TemplateCardBadgePosition =
+  "top-right";
+
+export type TemplateCardBadgeConfig = {
+  position?: TemplateCardBadgePosition;
+  icon?: string;
+  text?: string;
+  color?: string;
+};
+
+export const templateCardBadgeConfigStruct = object({
+  position: optional(enums(TEMPLATE_CARD_BADGE_POSITIONS)),
+  icon: optional(string()),
+  text: optional(string()),
+  color: optional(string()),
+});
+
 export type TemplateCardConfig = LovelaceCardConfig & {
   entity?: string;
   area?: string;
@@ -27,6 +54,7 @@ export type TemplateCardConfig = LovelaceCardConfig & {
   badge_icon?: string;
   badge_text?: string;
   badge_color?: string;
+  badges?: TemplateCardBadgeConfig[];
   // Style
   vertical?: boolean;
   multiline_secondary?: boolean;
@@ -73,6 +101,7 @@ export const templateCardConfigStruct = assign(
     badge_icon: optional(string()),
     badge_text: optional(string()),
     badge_color: optional(string()),
+    badges: optional(array(templateCardBadgeConfigStruct)),
     // Style
     vertical: optional(boolean()),
     multiline_secondary: optional(boolean()),

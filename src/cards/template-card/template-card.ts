@@ -28,7 +28,9 @@ import { CacheManager } from "../../utils/cache-manager";
 import { registerCustomCard } from "../../utils/custom-cards";
 import { LovelaceCardFeatureConfig } from "../../ha/panels/lovelace/card-features/types";
 import {
+  DEFAULT_TEMPLATE_CARD_BADGE_POSITION,
   migrateTemplateCardConfig,
+  TemplateCardBadgePosition,
   TemplateCardConfig,
 } from "./template-card-config";
 import { getWeatherSvgIcon } from "../../utils/icons/weather-icon";
@@ -52,7 +54,7 @@ registerCustomCard({
 const templateCache = new CacheManager<TemplateResults>(1000);
 
 type TemplateResults = Partial<
-  Record<TemplateKey, RenderTemplateResult | undefined>
+  Record<string, RenderTemplateResult | undefined>
 >;
 
 const TEMPLATE_KEYS = [
@@ -66,7 +68,36 @@ const TEMPLATE_KEYS = [
   "badge_text",
 ] as const;
 
-type TemplateKey = (typeof TEMPLATE_KEYS)[number];
+const BADGE_TEMPLATE_KEYS = ["icon", "color", "text"] as const;
+
+type BadgeTemplateKey = (typeof BADGE_TEMPLATE_KEYS)[number];
+
+// Template keys are either top level keys (e.g. "icon") or badge keys with a
+// path (e.g. "badges.0.icon"), as the number of badges is not fixed.
+const badgeTemplateKey = (index: number, key: BadgeTemplateKey) =>
+  `badges.${index}.${key}`;
+
+const computeTemplateValues = (
+  config: TemplateCardConfig
+): Record<string, string> => {
+  const values: Record<string, string> = {};
+  TEMPLATE_KEYS.forEach((key) => {
+    values[key] = config[key] ?? "";
+  });
+  config.badges?.forEach((badge, index) => {
+    BADGE_TEMPLATE_KEYS.forEach((key) => {
+      values[badgeTemplateKey(index, key)] = badge?.[key] ?? "";
+    });
+  });
+  return values;
+};
+
+type RenderedBadge = {
+  position: TemplateCardBadgePosition;
+  icon?: string;
+  text?: string;
+  color?: string;
+};
 
 export interface LovelaceCardFeatureContext {
   entity_id?: string;
@@ -100,9 +131,11 @@ export class MushroomTemplateCard extends LitElement implements LovelaceCard {
   @state() private _templateResults?: TemplateResults;
 
   @state() private _unsubRenderTemplates: Map<
-    TemplateKey,
+    string,
     Promise<UnsubscribeFunc>
   > = new Map();
+
+  private _templateValues = memoizeOne(computeTemplateValues);
 
   public connectedCallback() {
     super.connectedCallback();
@@ -148,20 +181,23 @@ export class MushroomTemplateCard extends LitElement implements LovelaceCard {
     this._tryConnect();
   }
 
-  private _getTemplateKeyValue(key: TemplateKey): string {
+  private _getTemplateKeyValue(key: string): string {
     if (!this._config) {
       return "";
     }
-    return this._config[key] ?? "";
+    return this._templateValues(this._config)[key] ?? "";
   }
 
   private async _tryConnect(): Promise<void> {
-    TEMPLATE_KEYS.forEach((key) => {
+    if (!this._config) {
+      return;
+    }
+    Object.keys(this._templateValues(this._config)).forEach((key) => {
       this._tryConnectKey(key);
     });
   }
 
-  private async _tryConnectKey(key: TemplateKey): Promise<void> {
+  private async _tryConnectKey(key: string): Promise<void> {
     if (
       this._unsubRenderTemplates.get(key) !== undefined ||
       !this.hass ||
@@ -199,7 +235,7 @@ export class MushroomTemplateCard extends LitElement implements LovelaceCard {
       await sub;
     } catch (_err) {
       const result = {
-        result: this._config[key] ?? "",
+        result: value,
         listeners: {
           all: false,
           domains: [],
@@ -215,12 +251,12 @@ export class MushroomTemplateCard extends LitElement implements LovelaceCard {
     }
   }
   private async _tryDisconnect(): Promise<void> {
-    TEMPLATE_KEYS.forEach((key) => {
+    Array.from(this._unsubRenderTemplates.keys()).forEach((key) => {
       this._tryDisconnectKey(key);
     });
   }
 
-  private async _tryDisconnectKey(key: TemplateKey): Promise<void> {
+  private async _tryDisconnectKey(key: string): Promise<void> {
     const unsubRenderTemplate = this._unsubRenderTemplates.get(key);
     if (!unsubRenderTemplate) {
       return;
@@ -242,7 +278,30 @@ export class MushroomTemplateCard extends LitElement implements LovelaceCard {
   }
 
   public setConfig(config: TemplateCardConfig): void {
-    this._config = migrateTemplateCardConfig(config);
+    const newConfig = migrateTemplateCardConfig(config);
+
+    // Close the subscriptions of templates that changed or no longer exist
+    // (e.g. a removed badge), so they can be reopened with the new config.
+    if (this._config) {
+      const oldValues = this._templateValues(this._config);
+      const newValues = computeTemplateValues(newConfig);
+      const contextChanged =
+        this._config.entity !== newConfig.entity ||
+        this._config.area !== newConfig.area;
+      const changedKeys = Object.keys(oldValues).filter(
+        (key) => contextChanged || oldValues[key] !== newValues[key]
+      );
+      if (changedKeys.length > 0) {
+        const templateResults = { ...this._templateResults };
+        changedKeys.forEach((key) => {
+          this._tryDisconnectKey(key);
+          delete templateResults[key];
+        });
+        this._templateResults = templateResults;
+      }
+    }
+
+    this._config = newConfig;
 
     if (this._config.entity) {
       if (!this._config.tap_action) {
@@ -265,7 +324,7 @@ export class MushroomTemplateCard extends LitElement implements LovelaceCard {
     }
   );
 
-  private getValue(key: TemplateKey) {
+  private getValue(key: string) {
     const value = this._getTemplateKeyValue(key);
     return isTemplate(value)
       ? this._templateResults?.[key]?.result?.toString()
@@ -406,6 +465,51 @@ export class MushroomTemplateCard extends LitElement implements LovelaceCard {
     return Math.ceil(below.length / Math.max(columns, 1));
   }
 
+  private _computeBadges(config: TemplateCardConfig): RenderedBadge[] {
+    // The legacy badge options are displayed at the default position. When
+    // several badges share the same position, the last visible one is shown.
+    const badges = new Map<TemplateCardBadgePosition, RenderedBadge>();
+    const addBadge = (badge: RenderedBadge) => {
+      if (badge.icon || badge.text) {
+        badges.set(badge.position, badge);
+      }
+    };
+
+    addBadge({
+      position: DEFAULT_TEMPLATE_CARD_BADGE_POSITION,
+      icon: this.getValue("badge_icon"),
+      text: this.getValue("badge_text"),
+      color: this.getValue("badge_color"),
+    });
+
+    config.badges?.forEach((badge, index) => {
+      addBadge({
+        position: badge?.position ?? DEFAULT_TEMPLATE_CARD_BADGE_POSITION,
+        icon: this.getValue(badgeTemplateKey(index, "icon")),
+        text: this.getValue(badgeTemplateKey(index, "text")),
+        color: this.getValue(badgeTemplateKey(index, "color")),
+      });
+    });
+
+    return Array.from(badges.values());
+  }
+
+  private _renderBadge(badge: RenderedBadge) {
+    const cssColor = badge.color ? computeCssColor(badge.color) : undefined;
+    return html`
+      <ha-tile-badge
+        class=${badge.position}
+        style=${styleMap({
+          "--badge-color": cssColor,
+        })}
+      >
+        ${badge.text
+          ? html`<span>${badge.text}</span>`
+          : html`<ha-icon .icon=${badge.icon}></ha-icon>`}
+      </ha-tile-badge>
+    `;
+  }
+
   protected render() {
     if (!this._config || !this.hass) {
       return nothing;
@@ -417,10 +521,7 @@ export class MushroomTemplateCard extends LitElement implements LovelaceCard {
     const primary = this.getValue("primary");
     const secondary = this.getValue("secondary");
     const picture = this.getValue("picture");
-    const badgeIcon = this.getValue("badge_icon");
-    const badgeColor = this.getValue("badge_color");
-    const badgeText = this.getValue("badge_text");
-    const badgeCssColor = badgeColor ? computeCssColor(badgeColor) : undefined;
+    const badges = this._computeBadges(this._config);
 
     const weatherSvg = getWeatherSvgIcon(icon);
 
@@ -535,20 +636,7 @@ export class MushroomTemplateCard extends LitElement implements LovelaceCard {
                                       .icon=${icon}
                                       .hass=${this.hass}
                                     ></ha-state-icon>`}
-                              ${badgeIcon || badgeText
-                                ? html`
-                                    <ha-tile-badge
-                                      style=${styleMap({
-                                        "--badge-color": badgeCssColor,
-                                      })}
-                                    >
-                                      ${badgeText
-                                        ? html`<span>${badgeText}</span>`
-                                        : html`<ha-icon .icon=${badgeIcon}>
-                                          </ha-icon>`}
-                                    </ha-tile-badge>
-                                  `
-                                : nothing}
+                              ${badges.map((badge) => this._renderBadge(badge))}
                             </ha-tile-icon>
                           `
                         : nothing}
@@ -727,6 +815,18 @@ export class MushroomTemplateCard extends LitElement implements LovelaceCard {
           --badge-color,
           var(--secondary-text-color)
         );
+      }
+      ha-tile-badge.top-left,
+      ha-tile-badge.bottom-left {
+        left: 3px;
+        right: initial;
+        inset-inline-start: 3px;
+        inset-inline-end: initial;
+      }
+      ha-tile-badge.bottom-left,
+      ha-tile-badge.bottom-right {
+        top: initial;
+        bottom: 3px;
       }
       ha-tile-badge span {
         font-size: 0.8rem;

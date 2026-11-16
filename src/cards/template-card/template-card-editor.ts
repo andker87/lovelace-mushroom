@@ -27,7 +27,10 @@ import {
 } from "../../utils/lovelace/editor/types";
 import { getEntityDefaultTileIconAction } from "./template-card";
 import {
+  DEFAULT_TEMPLATE_CARD_BADGE_POSITION,
   migrateTemplateCardConfig,
+  TEMPLATE_CARD_BADGE_POSITIONS,
+  TemplateCardBadgeConfig,
   TemplateCardConfig,
   templateCardConfigStruct,
   templateCardNeedsMigration,
@@ -99,7 +102,8 @@ export class MushroomTemplateCardEditor
     (
       localize: LocalizeFunc,
       entityId: string | undefined,
-      supportDivider: boolean
+      supportDivider: boolean,
+      showLegacyBadge: boolean
     ) =>
       [
         {
@@ -125,18 +129,24 @@ export class MushroomTemplateCardEditor
             { name: "picture", selector: { template: {} } },
           ],
         },
-        {
-          name: "badge",
-          type: "expandable",
-          flatten: true,
-          icon: "mdi:square-rounded-badge-outline",
+        // Single badge options are only shown when already used. New badges
+        // are added with the badges list.
+        ...(showLegacyBadge
+          ? ([
+              {
+                name: "badge",
+                type: "expandable",
+                flatten: true,
+                icon: "mdi:square-rounded-badge-outline",
 
-          schema: [
-            { name: "badge_icon", selector: { template: {} } },
-            { name: "badge_text", selector: { template: {} } },
-            { name: "badge_color", selector: { template: {} } },
-          ],
-        },
+                schema: [
+                  { name: "badge_icon", selector: { template: {} } },
+                  { name: "badge_text", selector: { template: {} } },
+                  { name: "badge_color", selector: { template: {} } },
+                ],
+              },
+            ] as const)
+          : []),
         {
           name: "layout",
           type: "expandable",
@@ -220,6 +230,43 @@ export class MushroomTemplateCardEditor
         },
       ] as const satisfies readonly HaFormSchema[]
   );
+
+  private _badgeSchema = memoizeOne(
+    (_language: string) =>
+      [
+        {
+          name: "position",
+          required: true,
+          selector: {
+            select: {
+              mode: "dropdown",
+              options: TEMPLATE_CARD_BADGE_POSITIONS.map((value) => ({
+                label: setupCustomlocalize(this.hass!)(
+                  `editor.card.template.badge_position_options.${value}`
+                ),
+                value,
+              })),
+            },
+          },
+        },
+        { name: "icon", selector: { template: {} } },
+        { name: "text", selector: { template: {} } },
+        { name: "color", selector: { template: {} } },
+      ] as const satisfies readonly HaFormSchema[]
+  );
+
+  private _computeBadgeLabel = (schema: HaFormSchema) => {
+    const customLocalize = setupCustomlocalize(this.hass!);
+    return customLocalize(`editor.card.template.badge_${schema.name}`);
+  };
+
+  private _computeBadgeHelper = (schema: HaFormSchema) => {
+    if (schema.name !== "text") {
+      return undefined;
+    }
+    const customLocalize = setupCustomlocalize(this.hass!);
+    return customLocalize(`editor.card.template.badge_text_helper`);
+  };
 
   private _featuresSchema = memoizeOne(
     (localize: LocalizeFunc, vertical: boolean) =>
@@ -306,9 +353,12 @@ export class MushroomTemplateCardEditor
     const schema = this._schema(
       this.hass.localize,
       this._config.entity,
-      atLeastHaVersion(this.hass.connection.haVersion, 2026, 9)
+      atLeastHaVersion(this.hass.connection.haVersion, 2026, 9),
+      this._hasLegacyBadge(this._config)
     );
     const customLocalize = setupCustomlocalize(this.hass!);
+    const badgeSchema = this._badgeSchema(this.hass.language);
+    const badges = this._config.badges ?? [];
 
     const data = {
       ...this._config,
@@ -370,6 +420,51 @@ export class MushroomTemplateCardEditor
         @value-changed=${this._valueChanged}
       ></ha-form>
       <ha-expansion-panel outlined>
+        <ha-icon
+          slot="leading-icon"
+          icon="mdi:square-rounded-badge-outline"
+        ></ha-icon>
+        <h3 slot="header">${customLocalize("editor.card.template.badges")}</h3>
+        <div class="content">
+          ${badges.map(
+            (badge, index) => html`
+              <div class="badge">
+                <div class="badge-header">
+                  <span>
+                    ${customLocalize("editor.card.template.badge")} ${index + 1}
+                  </span>
+                  <ha-icon-button
+                    .label=${customLocalize(
+                      "editor.card.template.remove_badge"
+                    )}
+                    .index=${index}
+                    @click=${this._removeBadge}
+                  >
+                    <ha-icon icon="mdi:delete"></ha-icon>
+                  </ha-icon-button>
+                </div>
+                <ha-form
+                  .hass=${this.hass}
+                  .index=${index}
+                  .data=${{
+                    ...badge,
+                    position:
+                      badge.position ?? DEFAULT_TEMPLATE_CARD_BADGE_POSITION,
+                  }}
+                  .schema=${badgeSchema}
+                  .computeLabel=${this._computeBadgeLabel}
+                  .computeHelper=${this._computeBadgeHelper}
+                  @value-changed=${this._badgeChanged}
+                ></ha-form>
+              </div>
+            `
+          )}
+          <ha-button size="small" @click=${this._addBadge}>
+            ${customLocalize("editor.card.template.add_badge")}
+          </ha-button>
+        </div>
+      </ha-expansion-panel>
+      <ha-expansion-panel outlined>
         <ha-icon slot="leading-icon" icon="mdi:list-box"></ha-icon>
         <h3 slot="header">
           ${this.hass!.localize(
@@ -396,6 +491,63 @@ export class MushroomTemplateCardEditor
         </div>
       </ha-expansion-panel>
     `;
+  }
+
+  private _hasLegacyBadge(config: TemplateCardConfig): boolean {
+    return Boolean(
+      config.badge_icon || config.badge_text || config.badge_color
+    );
+  }
+
+  private _addBadge(): void {
+    if (!this._config) {
+      return;
+    }
+    const badges = this._config.badges ?? [];
+
+    // Use the first free position, the legacy badge uses the default one
+    const usedPositions = new Set(
+      badges.map(
+        (badge) => badge.position ?? DEFAULT_TEMPLATE_CARD_BADGE_POSITION
+      )
+    );
+    if (this._hasLegacyBadge(this._config)) {
+      usedPositions.add(DEFAULT_TEMPLATE_CARD_BADGE_POSITION);
+    }
+    const position =
+      TEMPLATE_CARD_BADGE_POSITIONS.find((p) => !usedPositions.has(p)) ??
+      DEFAULT_TEMPLATE_CARD_BADGE_POSITION;
+
+    this._updateBadges([...badges, { position }]);
+  }
+
+  private _removeBadge(ev: CustomEvent): void {
+    if (!this._config?.badges) {
+      return;
+    }
+    const index = (ev.currentTarget as any).index as number;
+    const badges = this._config.badges.concat();
+    badges.splice(index, 1);
+    this._updateBadges(badges);
+  }
+
+  private _badgeChanged(ev: CustomEvent): void {
+    ev.stopPropagation();
+    if (!this._config?.badges) {
+      return;
+    }
+    const index = (ev.currentTarget as any).index as number;
+    const badges = this._config.badges.concat();
+    badges[index] = ev.detail.value as TemplateCardBadgeConfig;
+    this._updateBadges(badges);
+  }
+
+  private _updateBadges(badges: TemplateCardBadgeConfig[]): void {
+    const config: TemplateCardConfig = { ...this._config!, badges };
+    if (badges.length === 0) {
+      delete config.badges;
+    }
+    fireEvent(this, "config-changed", { config });
   }
 
   private _featuresChanged(ev: CustomEvent) {
@@ -477,6 +629,23 @@ export class MushroomTemplateCardEditor
         }
         .features-form {
           margin-bottom: 8px;
+        }
+        ha-expansion-panel + ha-expansion-panel {
+          margin-top: 24px;
+        }
+        .badge {
+          border: 1px solid var(--divider-color);
+          border-radius: 6px;
+          padding: 0 12px 12px 12px;
+          margin-bottom: 12px;
+        }
+        .badge-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+        .badge ha-form {
+          margin-bottom: 0;
         }
         ha-expansion-panel {
           display: block;
