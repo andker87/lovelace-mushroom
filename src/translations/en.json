@@ -93,6 +93,7 @@
         }
       },
       "template": {
+        "add_indicator": "Add indicator",
         "area_helper": "Used in templates and features",
         "area": "Area",
         "badge_color": "Badge color",
@@ -103,19 +104,18 @@
         "content": "Content",
         "entity_helper": "Used in templates, interactions and features",
         "entity_helper_legacy": "Used in templates and interactions",
+        "indicator_color": "Color",
+        "indicator_icon_helper": "The indicator is hidden when the icon is empty.",
+        "indicator_icon": "Icon",
+        "indicator": "Indicator",
+        "indicators": "Indicators",
         "label": "Label",
         "layout": "Layout",
         "multiline_secondary_helper": "The card may be taller to fit the text and will not always align with the grid system.",
         "multiline_secondary": "Allow multiline secondary information",
         "primary": "Primary information",
-        "secondary": "Secondary information",
-        "indicators": "Indicators",
-        "indicator": "Indicator",
-        "add_indicator": "Add indicator",
         "remove_indicator": "Remove indicator",
-        "indicator_icon": "Icon",
-        "indicator_color": "Color",
-        "indicator_icon_helper": "The indicator is hidden when the icon is empty."
+        "secondary": "Secondary information"
       },
       "title": {
         "alignment": "Alignment",

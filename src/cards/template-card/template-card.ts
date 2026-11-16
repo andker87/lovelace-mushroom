@@ -91,6 +91,10 @@ const computeTemplateValues = (
   return values;
 };
 
+// In the vertical layout, indicators are displayed in two columns on both
+// sides of the icon, so they don't overlap the text below it.
+const VERTICAL_INDICATORS_COLUMN_SIZE = 2;
+
 type RenderedIndicator = {
   icon: string;
   color?: string;
@@ -477,26 +481,47 @@ export class MushroomTemplateCard extends LitElement implements LovelaceCard {
     return indicators;
   }
 
-  private _renderIndicators(indicators: RenderedIndicator[]) {
+  private _renderIndicator(indicator: RenderedIndicator) {
+    const cssColor = indicator.color
+      ? computeCssColor(indicator.color)
+      : undefined;
+    return html`
+      <div
+        class="indicator"
+        style=${styleMap({ "--indicator-color": cssColor })}
+      >
+        <ha-icon .icon=${indicator.icon}></ha-icon>
+      </div>
+    `;
+  }
+
+  private _renderIndicators(
+    indicators: RenderedIndicator[],
+    vertical: boolean
+  ) {
     if (indicators.length === 0) {
       return nothing;
     }
+    if (!vertical) {
+      return html`
+        <div class="indicators">
+          ${indicators.map((indicator) => this._renderIndicator(indicator))}
+        </div>
+      `;
+    }
+    const end = indicators.slice(0, VERTICAL_INDICATORS_COLUMN_SIZE);
+    const start = indicators.slice(VERTICAL_INDICATORS_COLUMN_SIZE);
     return html`
-      <div class="indicators">
-        ${indicators.map((indicator) => {
-          const cssColor = indicator.color
-            ? computeCssColor(indicator.color)
-            : undefined;
-          return html`
-            <div
-              class="indicator"
-              style=${styleMap({ "--indicator-color": cssColor })}
-            >
-              <ha-icon .icon=${indicator.icon}></ha-icon>
-            </div>
-          `;
-        })}
+      <div class="indicators end">
+        ${end.map((indicator) => this._renderIndicator(indicator))}
       </div>
+      ${start.length > 0
+        ? html`
+            <div class="indicators start">
+              ${start.map((indicator) => this._renderIndicator(indicator))}
+            </div>
+          `
+        : nothing}
     `;
   }
 
@@ -661,7 +686,10 @@ export class MushroomTemplateCard extends LitElement implements LovelaceCard {
                             </ha-tile-info>
                           `
                         : nothing}
-                      ${this._renderIndicators(indicators)}
+                      ${this._renderIndicators(
+                        indicators,
+                        Boolean(this._config.vertical)
+                      )}
                     </div> `
                   : nothing}
                 ${features.inline.length > 0
@@ -833,7 +861,6 @@ export class MushroomTemplateCard extends LitElement implements LovelaceCard {
       .indicators {
         display: flex;
         flex-direction: row;
-        flex-wrap: wrap;
         justify-content: flex-end;
         align-items: center;
         gap: 4px;
@@ -843,10 +870,14 @@ export class MushroomTemplateCard extends LitElement implements LovelaceCard {
       .vertical .indicators {
         position: absolute;
         top: 8px;
-        inset-inline-end: 8px;
         flex-direction: column;
-        flex-wrap: nowrap;
         margin: 0;
+      }
+      .vertical .indicators.end {
+        inset-inline-end: 8px;
+      }
+      .vertical .indicators.start {
+        inset-inline-start: 8px;
       }
       .indicator {
         display: flex;

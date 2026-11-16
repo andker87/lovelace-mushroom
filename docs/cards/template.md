@@ -57,8 +57,8 @@ Each item of the `indicators` list supports the following options:
 | `icon`  | string | Optional | Icon of the indicator. Supports [templating](https://www.home-assistant.io/docs/configuration/templating/).  |
 | `color` | string | Optional | Color of the indicator. Supports [templating](https://www.home-assistant.io/docs/configuration/templating/). |
 
-- An indicator is hidden when its `icon` is empty, so a template can display it only when needed.
-- In the horizontal layout, indicators are displayed in a row on the right of the card. In the vertical layout, they are displayed in a column on the right edge of the card.
+* An indicator is hidden when its `icon` is empty, so a template can display it only when needed.
+* In the horizontal layout, indicators are displayed in a row on the right of the card. In the vertical layout, they are displayed in two columns at the top of the card, on both sides of the icon: the first two on the right, the next ones on the left. Up to four indicators fit without covering the text.
 
 ```yaml
 type: custom:mushroom-template-card
