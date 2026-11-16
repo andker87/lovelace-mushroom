@@ -14,6 +14,16 @@ import { LovelaceCardFeatureConfig } from "../../ha/panels/lovelace/card-feature
 import { lovelaceCardConfigStruct } from "../../shared/config/lovelace-card-config";
 import { layoutStruct } from "../../utils/layout";
 
+export type TemplateCardIndicatorConfig = {
+  icon?: string;
+  color?: string;
+};
+
+export const templateCardIndicatorConfigStruct = object({
+  icon: optional(string()),
+  color: optional(string()),
+});
+
 export type TemplateCardConfig = LovelaceCardConfig & {
   entity?: string;
   area?: string;
@@ -27,6 +37,8 @@ export type TemplateCardConfig = LovelaceCardConfig & {
   badge_icon?: string;
   badge_text?: string;
   badge_color?: string;
+  // Indicators
+  indicators?: TemplateCardIndicatorConfig[];
   // Style
   vertical?: boolean;
   multiline_secondary?: boolean;
@@ -73,6 +85,8 @@ export const templateCardConfigStruct = assign(
     badge_icon: optional(string()),
     badge_text: optional(string()),
     badge_color: optional(string()),
+    // Indicators
+    indicators: optional(array(templateCardIndicatorConfigStruct)),
     // Style
     vertical: optional(boolean()),
     multiline_secondary: optional(boolean()),

@@ -33,6 +33,7 @@ All options are available in the **Lovelace editor**, but you can also configure
 | `badge_icon`             | string        | Optional | Icon displayed as a badge. Supports [templating](https://www.home-assistant.io/docs/configuration/templating/).                                                                                                 |
 | `badge_text`             | string        | Optional | Text displayed inside the badge. Supports [templating](https://www.home-assistant.io/docs/configuration/templating/).                                                                                             |
 | `badge_color`            | string        | Optional | Color applied to the badge. Supports [templating](https://www.home-assistant.io/docs/configuration/templating/).                                                                                                  |
+| `indicators`             | list          | Optional | List of small icons displayed on the right of the card, e.g. to show alerts. See [Indicators](#indicators).                                         |
 | `multiline_secondary`    | boolean       | `false`  | If `true`, secondary text can span multiple lines.                                                                                                 |
 | `vertical`               | boolean       | `false` | If `true`, displays the icon above the text (vertical layout).                                                                                     |
 | `tap_action`             | action        | `none`   | Action performed when the card is tapped.                                                                                                          |
@@ -44,6 +45,34 @@ All options are available in the **Lovelace editor**, but you can also configure
 | `features`               | list          | `none`   | Card features to display (e.g., controls or extra info).                                                                                           |
 | `features_position`      | string        | `bottom` | Where features are displayed: `bottom` (below the card) or `inline` (next to content). Note: when using `inline`, only the first feature is shown. |
 | `entity_id`              | string / list | Optional | Restricts template updates to these entities. Useful if automatic detection misses dependencies.                                                            |
+
+### Indicators
+
+Indicators are small icons displayed on the right of the card, separately from the icon and its badge. They are useful to show several pieces of information at once (motion, open window, climate...) without covering the icon.
+
+Each item of the `indicators` list supports the following options:
+
+| Name    | Type   | Default  | Description                                                                                                  |
+| :------ | :----- | :------- | :----------------------------------------------------------------------------------------------------------- |
+| `icon`  | string | Optional | Icon of the indicator. Supports [templating](https://www.home-assistant.io/docs/configuration/templating/).  |
+| `color` | string | Optional | Color of the indicator. Supports [templating](https://www.home-assistant.io/docs/configuration/templating/). |
+
+- An indicator is hidden when its `icon` is empty, so a template can display it only when needed.
+- In the horizontal layout, indicators are displayed in a row on the right of the card. In the vertical layout, they are displayed in a column on the right edge of the card.
+
+```yaml
+type: custom:mushroom-template-card
+primary: Living room
+secondary: "{{ states('sensor.living_room_temperature') }} °C"
+icon: mdi:sofa
+indicators:
+  - icon: "{{ 'mdi:motion-sensor' if is_state('binary_sensor.living_room_motion', 'on') }}"
+    color: amber
+  - icon: "{{ 'mdi:window-open-variant' if is_state('binary_sensor.living_room_window', 'on') }}"
+    color: blue
+  - icon: "{{ 'mdi:snowflake' if is_state('climate.living_room', 'cool') }}"
+    color: blue
+```
 
 ---
 

@@ -29,6 +29,7 @@ import { getEntityDefaultTileIconAction } from "./template-card";
 import {
   migrateTemplateCardConfig,
   TemplateCardConfig,
+  TemplateCardIndicatorConfig,
   templateCardConfigStruct,
   templateCardNeedsMigration,
 } from "./template-card-config";
@@ -251,6 +252,24 @@ export class MushroomTemplateCardEditor
       ] as const satisfies readonly HaFormSchema[]
   );
 
+  private _indicatorSchema = [
+    { name: "icon", selector: { template: {} } },
+    { name: "color", selector: { template: {} } },
+  ] as const satisfies readonly HaFormSchema[];
+
+  private _computeIndicatorLabel = (schema: HaFormSchema) => {
+    const customLocalize = setupCustomlocalize(this.hass!);
+    return customLocalize(`editor.card.template.indicator_${schema.name}`);
+  };
+
+  private _computeIndicatorHelper = (schema: HaFormSchema) => {
+    if (schema.name !== "icon") {
+      return undefined;
+    }
+    const customLocalize = setupCustomlocalize(this.hass!);
+    return customLocalize(`editor.card.template.indicator_icon_helper`);
+  };
+
   private _computeLabel = (schema: HaFormSchema) => {
     const customLocalize = setupCustomlocalize(this.hass!);
 
@@ -370,6 +389,50 @@ export class MushroomTemplateCardEditor
         @value-changed=${this._valueChanged}
       ></ha-form>
       <ha-expansion-panel outlined>
+        <ha-icon
+          slot="leading-icon"
+          icon="mdi:dots-horizontal-circle-outline"
+        ></ha-icon>
+        <h3 slot="header">
+          ${customLocalize("editor.card.template.indicators")}
+        </h3>
+        <div class="content">
+          ${(this._config.indicators ?? []).map(
+            (indicator, index) => html`
+              <div class="indicator">
+                <div class="indicator-header">
+                  <span>
+                    ${customLocalize("editor.card.template.indicator")}
+                    ${index + 1}
+                  </span>
+                  <ha-icon-button
+                    .label=${customLocalize(
+                      "editor.card.template.remove_indicator"
+                    )}
+                    .index=${index}
+                    @click=${this._removeIndicator}
+                  >
+                    <ha-icon icon="mdi:delete"></ha-icon>
+                  </ha-icon-button>
+                </div>
+                <ha-form
+                  .hass=${this.hass}
+                  .index=${index}
+                  .data=${indicator}
+                  .schema=${this._indicatorSchema}
+                  .computeLabel=${this._computeIndicatorLabel}
+                  .computeHelper=${this._computeIndicatorHelper}
+                  @value-changed=${this._indicatorChanged}
+                ></ha-form>
+              </div>
+            `
+          )}
+          <ha-button size="small" @click=${this._addIndicator}>
+            ${customLocalize("editor.card.template.add_indicator")}
+          </ha-button>
+        </div>
+      </ha-expansion-panel>
+      <ha-expansion-panel outlined>
         <ha-icon slot="leading-icon" icon="mdi:list-box"></ha-icon>
         <h3 slot="header">
           ${this.hass!.localize(
@@ -396,6 +459,42 @@ export class MushroomTemplateCardEditor
         </div>
       </ha-expansion-panel>
     `;
+  }
+
+  private _addIndicator(): void {
+    if (!this._config) {
+      return;
+    }
+    this._updateIndicators([...(this._config.indicators ?? []), {}]);
+  }
+
+  private _removeIndicator(ev: CustomEvent): void {
+    if (!this._config?.indicators) {
+      return;
+    }
+    const index = (ev.currentTarget as any).index as number;
+    const indicators = this._config.indicators.concat();
+    indicators.splice(index, 1);
+    this._updateIndicators(indicators);
+  }
+
+  private _indicatorChanged(ev: CustomEvent): void {
+    ev.stopPropagation();
+    if (!this._config?.indicators) {
+      return;
+    }
+    const index = (ev.currentTarget as any).index as number;
+    const indicators = this._config.indicators.concat();
+    indicators[index] = ev.detail.value as TemplateCardIndicatorConfig;
+    this._updateIndicators(indicators);
+  }
+
+  private _updateIndicators(indicators: TemplateCardIndicatorConfig[]): void {
+    const config: TemplateCardConfig = { ...this._config!, indicators };
+    if (indicators.length === 0) {
+      delete config.indicators;
+    }
+    fireEvent(this, "config-changed", { config });
   }
 
   private _featuresChanged(ev: CustomEvent) {
@@ -477,6 +576,23 @@ export class MushroomTemplateCardEditor
         }
         .features-form {
           margin-bottom: 8px;
+        }
+        ha-expansion-panel + ha-expansion-panel {
+          margin-top: 24px;
+        }
+        .indicator {
+          border: 1px solid var(--divider-color);
+          border-radius: 6px;
+          padding: 0 12px 12px 12px;
+          margin-bottom: 12px;
+        }
+        .indicator-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+        .indicator ha-form {
+          margin-bottom: 0;
         }
         ha-expansion-panel {
           display: block;

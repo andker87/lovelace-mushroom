@@ -108,7 +108,14 @@
         "multiline_secondary_helper": "The card may be taller to fit the text and will not always align with the grid system.",
         "multiline_secondary": "Allow multiline secondary information",
         "primary": "Primary information",
-        "secondary": "Secondary information"
+        "secondary": "Secondary information",
+        "indicators": "Indicators",
+        "indicator": "Indicator",
+        "add_indicator": "Add indicator",
+        "remove_indicator": "Remove indicator",
+        "indicator_icon": "Icon",
+        "indicator_color": "Color",
+        "indicator_icon_helper": "The indicator is hidden when the icon is empty."
       },
       "title": {
         "alignment": "Alignment",

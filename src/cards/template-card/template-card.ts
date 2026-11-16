@@ -52,7 +52,7 @@ registerCustomCard({
 const templateCache = new CacheManager<TemplateResults>(1000);
 
 type TemplateResults = Partial<
-  Record<TemplateKey, RenderTemplateResult | undefined>
+  Record<string, RenderTemplateResult | undefined>
 >;
 
 const TEMPLATE_KEYS = [
@@ -66,7 +66,35 @@ const TEMPLATE_KEYS = [
   "badge_text",
 ] as const;
 
-type TemplateKey = (typeof TEMPLATE_KEYS)[number];
+const INDICATOR_TEMPLATE_KEYS = ["icon", "color"] as const;
+
+type IndicatorTemplateKey = (typeof INDICATOR_TEMPLATE_KEYS)[number];
+
+// Template keys are either top level keys (e.g. "icon") or indicator keys
+// with a path (e.g. "indicators.0.icon"), as the number of indicators is not
+// fixed.
+const indicatorTemplateKey = (index: number, key: IndicatorTemplateKey) =>
+  `indicators.${index}.${key}`;
+
+const computeTemplateValues = (
+  config: TemplateCardConfig
+): Record<string, string> => {
+  const values: Record<string, string> = {};
+  TEMPLATE_KEYS.forEach((key) => {
+    values[key] = config[key] ?? "";
+  });
+  config.indicators?.forEach((indicator, index) => {
+    INDICATOR_TEMPLATE_KEYS.forEach((key) => {
+      values[indicatorTemplateKey(index, key)] = indicator?.[key] ?? "";
+    });
+  });
+  return values;
+};
+
+type RenderedIndicator = {
+  icon: string;
+  color?: string;
+};
 
 export interface LovelaceCardFeatureContext {
   entity_id?: string;
@@ -100,9 +128,11 @@ export class MushroomTemplateCard extends LitElement implements LovelaceCard {
   @state() private _templateResults?: TemplateResults;
 
   @state() private _unsubRenderTemplates: Map<
-    TemplateKey,
+    string,
     Promise<UnsubscribeFunc>
   > = new Map();
+
+  private _templateValues = memoizeOne(computeTemplateValues);
 
   public connectedCallback() {
     super.connectedCallback();
@@ -148,20 +178,23 @@ export class MushroomTemplateCard extends LitElement implements LovelaceCard {
     this._tryConnect();
   }
 
-  private _getTemplateKeyValue(key: TemplateKey): string {
+  private _getTemplateKeyValue(key: string): string {
     if (!this._config) {
       return "";
     }
-    return this._config[key] ?? "";
+    return this._templateValues(this._config)[key] ?? "";
   }
 
   private async _tryConnect(): Promise<void> {
-    TEMPLATE_KEYS.forEach((key) => {
+    if (!this._config) {
+      return;
+    }
+    Object.keys(this._templateValues(this._config)).forEach((key) => {
       this._tryConnectKey(key);
     });
   }
 
-  private async _tryConnectKey(key: TemplateKey): Promise<void> {
+  private async _tryConnectKey(key: string): Promise<void> {
     if (
       this._unsubRenderTemplates.get(key) !== undefined ||
       !this.hass ||
@@ -199,7 +232,7 @@ export class MushroomTemplateCard extends LitElement implements LovelaceCard {
       await sub;
     } catch (_err) {
       const result = {
-        result: this._config[key] ?? "",
+        result: value,
         listeners: {
           all: false,
           domains: [],
@@ -215,12 +248,12 @@ export class MushroomTemplateCard extends LitElement implements LovelaceCard {
     }
   }
   private async _tryDisconnect(): Promise<void> {
-    TEMPLATE_KEYS.forEach((key) => {
+    Array.from(this._unsubRenderTemplates.keys()).forEach((key) => {
       this._tryDisconnectKey(key);
     });
   }
 
-  private async _tryDisconnectKey(key: TemplateKey): Promise<void> {
+  private async _tryDisconnectKey(key: string): Promise<void> {
     const unsubRenderTemplate = this._unsubRenderTemplates.get(key);
     if (!unsubRenderTemplate) {
       return;
@@ -242,7 +275,30 @@ export class MushroomTemplateCard extends LitElement implements LovelaceCard {
   }
 
   public setConfig(config: TemplateCardConfig): void {
-    this._config = migrateTemplateCardConfig(config);
+    const newConfig = migrateTemplateCardConfig(config);
+
+    // Close the subscriptions of templates that changed or no longer exist
+    // (e.g. a removed indicator), so they can be reopened with the new config.
+    if (this._config) {
+      const oldValues = this._templateValues(this._config);
+      const newValues = computeTemplateValues(newConfig);
+      const contextChanged =
+        this._config.entity !== newConfig.entity ||
+        this._config.area !== newConfig.area;
+      const changedKeys = Object.keys(oldValues).filter(
+        (key) => contextChanged || oldValues[key] !== newValues[key]
+      );
+      if (changedKeys.length > 0) {
+        const templateResults = { ...this._templateResults };
+        changedKeys.forEach((key) => {
+          this._tryDisconnectKey(key);
+          delete templateResults[key];
+        });
+        this._templateResults = templateResults;
+      }
+    }
+
+    this._config = newConfig;
 
     if (this._config.entity) {
       if (!this._config.tap_action) {
@@ -265,7 +321,7 @@ export class MushroomTemplateCard extends LitElement implements LovelaceCard {
     }
   );
 
-  private getValue(key: TemplateKey) {
+  private getValue(key: string) {
     const value = this._getTemplateKeyValue(key);
     return isTemplate(value)
       ? this._templateResults?.[key]?.result?.toString()
@@ -406,6 +462,44 @@ export class MushroomTemplateCard extends LitElement implements LovelaceCard {
     return Math.ceil(below.length / Math.max(columns, 1));
   }
 
+  private _computeIndicators(config: TemplateCardConfig): RenderedIndicator[] {
+    const indicators: RenderedIndicator[] = [];
+    config.indicators?.forEach((_indicator, index) => {
+      const icon = this.getValue(indicatorTemplateKey(index, "icon"));
+      if (!icon) {
+        return;
+      }
+      indicators.push({
+        icon,
+        color: this.getValue(indicatorTemplateKey(index, "color")),
+      });
+    });
+    return indicators;
+  }
+
+  private _renderIndicators(indicators: RenderedIndicator[]) {
+    if (indicators.length === 0) {
+      return nothing;
+    }
+    return html`
+      <div class="indicators">
+        ${indicators.map((indicator) => {
+          const cssColor = indicator.color
+            ? computeCssColor(indicator.color)
+            : undefined;
+          return html`
+            <div
+              class="indicator"
+              style=${styleMap({ "--indicator-color": cssColor })}
+            >
+              <ha-icon .icon=${indicator.icon}></ha-icon>
+            </div>
+          `;
+        })}
+      </div>
+    `;
+  }
+
   protected render() {
     if (!this._config || !this.hass) {
       return nothing;
@@ -421,6 +515,7 @@ export class MushroomTemplateCard extends LitElement implements LovelaceCard {
     const badgeColor = this.getValue("badge_color");
     const badgeText = this.getValue("badge_text");
     const badgeCssColor = badgeColor ? computeCssColor(badgeColor) : undefined;
+    const indicators = this._computeIndicators(this._config);
 
     const weatherSvg = getWeatherSvgIcon(icon);
 
@@ -566,6 +661,7 @@ export class MushroomTemplateCard extends LitElement implements LovelaceCard {
                             </ha-tile-info>
                           `
                         : nothing}
+                      ${this._renderIndicators(indicators)}
                     </div> `
                   : nothing}
                 ${features.inline.length > 0
@@ -733,6 +829,39 @@ export class MushroomTemplateCard extends LitElement implements LovelaceCard {
         font-weight: bold;
         height: 16px;
         line-height: 16px;
+      }
+      .indicators {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 4px;
+        flex: none;
+        margin-inline-start: auto;
+      }
+      .vertical .indicators {
+        position: absolute;
+        top: 8px;
+        inset-inline-end: 8px;
+        flex-direction: column;
+        flex-wrap: nowrap;
+        margin: 0;
+      }
+      .indicator {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        --mdc-icon-size: 16px;
+        color: var(--indicator-color, var(--secondary-text-color));
+        background-color: color-mix(
+          in srgb,
+          var(--indicator-color, var(--secondary-text-color)) 20%,
+          transparent
+        );
       }
       ha-tile-info {
         position: relative;
